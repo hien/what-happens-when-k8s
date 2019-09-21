@@ -1,4 +1,4 @@
-# 〜のとき何が起きるのか ... Kuernetes版！
+# 〜のとき何が起きるのか ... Kubernetes版！
 
 nginx を Kubernetes クラスターにデプロイしたいとしましょう。私はおそらくターミナルでつぎのようなコマンドをタイプするでしょう。
 
@@ -43,21 +43,21 @@ Kubernetes の素晴らしいところの1つは、ユーザーフレンドリ�
 
 さあ始めましょう。ターミナルでエンターキーを押しました。何が起こりますか？
 
-kubectl が最初に行うのはクライアントサイドのバリデーションです。これにより、**必ず**失敗するリクエスト（サポートされていないリソースの作成や[不正な形式のイメージ名](https://github.com/kubernetes/kubernetes/blob/9a480667493f6275c22cc9cd0f69fb0c75ef3579/pkg/kubectl/cmd/run.go#L251)を使用することなど）は早く失敗し、kube-apiserver に送信されません。これにより、不要な負荷を減少させ、システムパフォーマンスが向上します。
+kubectl が最初に行うのはクライアントサイドのバリデーションです。これにより、**必ず**失敗するリクエスト（サポートされていないリソースの作成や[不正な形式のイメージ名](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L264)を使用することなど）は早く失敗し、kube-apiserver に送信されません。これにより、不要な負荷を減少させ、システムパフォーマンスが向上します。
 
-バリデーション後、kubectl は kube-apiserver に送信する HTTP リクエストの組み立てを開始します。Kubernetes システム内の状態にアクセスしたり状態を変更しようとする試みはすべて API サーバーを介して行われ、API サーバーは etcd と通信します。kubectl クライアントも同じです。HTTP リクエストを構築するために、kubectl はジェネレーターと呼ばれるものを使用します。これはシリアル化を処理する抽象です。
+バリデーション後、kubectl は kube-apiserver に送信する HTTP リクエストの組み立てを開始します。Kubernetes システム内の状態にアクセスしたり状態を変更しようとする試みはすべて API サーバーを介して行われ、API サーバーは etcd と通信します。kubectl クライアントも同じです。HTTP リクエストを構築するために、kubectl は[ジェネレーター](https://kubernetes.io/docs/user-guide/kubectl-conventions/#generators)と呼ばれるものを使用します。これはシリアル化を処理する抽象です。
 
-`kubectl run` の対象には Deployment リソースだけでなく複数のリソースタイプを指定できるのはよくわからないかもしれません。これを機能させるために、ジェネレーター名が `--generator` フラグを使って明示的に指定されていなければ、kubectl はリソースタイプを[推測](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/run.go#L231-L257)します。
+`kubectl run` の対象には Deployment リソースだけでなく複数のリソースタイプを指定できるのはよくわからないかもしれません。これを機能させるために、ジェネレーター名が `--generator` フラグを使って明示的に指定されていなければ、kubectl はリソースタイプを[推測](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L319-L339)します。
 
 たとえば、 `--restart-policy = Always` をリソースは Deployment リソースとみなされ、 `--restart-policy = Never` を持つリソースは Pod リソースとみなされます。kubectl はコマンドを記録する（ロールアウトや監査用）など他のアクションを起動する必要があるかどうか、このコマンドが単なるドライランであるかどうか（ `--dry-run` フラグが指定される）も判断します。
 
-Deployment リソースを作成したいことが認識された後、提供されたパラメータからランタイムオブジェクトを生成するために `DeploymentV1Beta1` ジェネレーターを使います。「ランタイムオブジェクト」はリソースの総称です。
+Deployment リソースを作成したいことが認識された後、提供されたパラメータから[ランタイムオブジェクトを生成](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/generate/versioned/run.go#L237)するために `DeploymentAppsV1` ジェネレーターを使います。「ランタイムオブジェクト」はリソースの総称です。
 
 ### APIグループとバージョンネゴシエーション
 
 先に進む前に指摘する価値があるのは、Kubernetes は「APIグループ」に分類される _versioned_API を使用しているということです。APIグループは、似たリソースを分類して、簡単に推測できるようにすることを目的としています。それはまた、単一のモノリシックAPIに対するより良い代替手段を提供します。Deployment リソースのAPIグループは `apps` という名前で、その最新バージョンは `v1` です。Deployment リソースのマニフェストの上部に `apiVersion: apps/v1` と書く必要があるのはこのためです。
 
-とにかく... kubectl はランタイムオブジェクトを生成した後、適切なAPIグループとそれに対するバージョンを見つけ始め](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/run.go#L580-L597)、リソースに対する様々なRESTセマンティクスを知っている[バージョン管理されたクライアント](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/run.go#L598)を組み立てます。この探索ステージはバージョンネゴシエーションと呼ばれ、すべての利用可能なAPIグループを取得するためにリモートAPI上の `/apis` パスを kubectl がスキャンすることを含みます。kube-apiserver はこのパスでスキーマ文書（ OpenAPI フォーマット）を公開しているので、クライアントがディスカバリーを実行するのは簡単です。
+とにかく... kubectl はランタイムオブジェクトを生成した後、[適切なAPIグループとそれに対するバージョンを見つけ始め](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/run.go#L580-L597)、リソースに対する様々なRESTセマンティクスを知っている[バージョン管理されたクライアント](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/run.go#L598)を組み立てます。この探索ステージはバージョンネゴシエーションと呼ばれ、すべての利用可能なAPIグループを取得するためにリモートAPI上の `/apis` パスを kubectl がスキャンすることを含みます。kube-apiserver はこのパスでスキーマ文書（ OpenAPI フォーマット）を公開しているので、クライアントがディスカバリーを実行するのは簡単です。
 
 パフォーマンスを向上させるため、kubectl は [OpenAPI スキーマを `〜/.kube/cache/discovery` ディレクトリにもキャッシュします](https://github.com/kubernetes/kubernetes/blob/7650665059e65b4b22375d1e28da5306536a12fb/pkg/kubectl/cmd/util/factory_client_access.go#L117)。この API のディスカバリーを実際に見たい場合、そのディレクトリを削除し、 `-v` フラグを最大にしてコマンドを実行してみてください。それらの API バージョンを見つけようとしているすべての HTTP リクエストが表示されます。たくさんあります！
 
